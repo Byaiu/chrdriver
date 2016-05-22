@@ -54,7 +54,6 @@ static ssize_t LetterRead(struct file *filp, char *buf, size_t len, loff_t *off)
 		printk(KERN_ALERT "Letter Write Error\n");
 		return -EFAULT;
 	}
-	printk(KERN_ALERT "Letter Write %s\n", kbuf);
 	return ret;
 }
 
