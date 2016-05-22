@@ -1,6 +1,7 @@
 #include <linux/fs.h>               
 #include <linux/module.h>
 #include <asm/uaccess.h>            
+#include <linux/cdev.h>
 #include <linux/init.h>
 MODULE_LICENSE("GPL");
 MODULE_AUTHOR("DJC");
@@ -11,8 +12,16 @@ static ssize_t LetterWrite(struct file *, char *, size_t, loff_t *);
 // user defined function to reverse char.
 char reverseLetter(char ch);
 
-static int char_major = 0;                  
-static char kbuf[32] = {0};
+#define KBUF_LEN	32
+
+static int char_major = 250; 
+
+struct changeletter_dev {
+	struct cdev cdev;
+	char kbuf[KBUF_LEN];
+};
+struct changeletter_dev dev;
+
 static const struct file_operations ChangeLetter_fops =
 {
 	.read = LetterRead,
@@ -21,24 +30,33 @@ static const struct file_operations ChangeLetter_fops =
 
 static int __init ChangeLetter_init(void)
 {
-	int ret;
-	ret = register_chrdev(char_major, DEV_NAME, &ChangeLetter_fops);
+	int ret, err;
+	dev_t devno = MKDEV(char_major, 0);
+
+	if (char_major)
+		ret = register_chrdev_region(devno, 1, "changechar");
+	else {
+		ret = alloc_chrdev_region(&devno, 0, 1, "changechar");
+		char_major = MAJOR(devno);
+	}
+
 	if (ret < 0)
-	{
-		printk(KERN_ALERT "ChangeLetter Reg Fail ! \n");
-	}
-	else
-	{
-		printk(KERN_ALERT "ChangeLetter Reg Success ! \n");
-		char_major = ret;
-		printk(KERN_ALERT "Major = %d \n",char_major);
-	}
-	return ret;
+		return ret;
+
+	printk(KERN_NOTICE "Error adding changeletter");
+
+	cdev_init(&dev.cdev, &ChangeLetter_fops);
+	dev.cdev.owner = THIS_MODULE;
+	err = cdev_add(&dev.cdev, devno, 1);
+	if (err)
+		printk(KERN_NOTICE "Error %d adding changeletter", err);
+	return 0;
 }
 
 static void __exit ChangeLetter_exit(void)
 {
-	unregister_chrdev(char_major, DEV_NAME);
+	cdev_del(&dev.cdev);
+	unregister_chrdev_region(MKDEV(char_major, 0), 1);
 	return;
 }
 
@@ -49,7 +67,7 @@ static ssize_t LetterRead(struct file *filp, char *buf, size_t len, loff_t *off)
 		len = 30;
 
 
-	if(copy_to_user(buf, kbuf, len))
+	if(copy_to_user(buf, dev.kbuf, len))
 	{
 		printk(KERN_ALERT "Letter Write Error\n");
 		return -EFAULT;
@@ -63,7 +81,7 @@ static ssize_t LetterWrite(struct file *filp,  char *buf, size_t len, loff_t *of
 	if (len > 30)
 		len = 30;
 
-	if(copy_from_user(kbuf , buf, len))
+	if(copy_from_user(dev.kbuf , buf, len))
 	{
 		printk(KERN_ALERT "Letter Write Error\n");
 		return -EFAULT;
@@ -72,10 +90,10 @@ static ssize_t LetterWrite(struct file *filp,  char *buf, size_t len, loff_t *of
 	 *  write your code here
 	 */
 	for (i = 0; i < len; i++) {
-		kbuf[i] = reverseLetter(kbuf[i]);
+		dev.kbuf[i] = reverseLetter(dev.kbuf[i]);
 	}
 
-	printk(KERN_ALERT "Letter Write %s\n", kbuf);
+	printk(KERN_ALERT "Letter Write %s\n", dev.kbuf);
 	return len;
 }
 
